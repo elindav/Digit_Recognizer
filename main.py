@@ -1,5 +1,7 @@
 import sys
 import cv2
+import numpy as np
+from pathlib import Path
 from tensorflow.keras.models import load_model
 from PyQt6.QtWidgets import (
     QApplication,
@@ -23,8 +25,9 @@ class MainWindow(QMainWindow):
 
         #Integrating AI model
         try:
-            self.model = load_model("model.h5")
-            print("AI model loaded successfully")
+            self.model_path = Path(__file__).resolve().parent.parent / "digit_recognizer" / "model.keras"
+            self.model = load_model(self.model_path)
+            print(f"AI model loaded successfully: {self.model_path}")
         except Exception as e:
             self.model = None
             print("Error in loading AI model")
@@ -137,28 +140,11 @@ class MainWindow(QMainWindow):
 
         self.result_label.setText("Analyzing...")
 
-        frame = self.current_frame
+        input_image = self.prepare_digit_frame(self.current_frame)
 
-        # Convert to grayscale
-        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-
-        _, thresh = cv2.threshold(
-            gray,
-            150,
-            255,
-            cv2.THRESH_BINARY_INV
-        )
-
-        resized = cv2.resize(thresh, (28, 28))
-
-        # Save debug image
-        cv2.imwrite("debug_input.png", resized)
-
-        # Normalize
-        resized = resized.astype("float32") / 255.0
-
-        # Prepare input shape
-        input_image = resized.reshape(1, 28, 28)
+        if input_image is None:
+            self.result_label.setText("No digit found")
+            return
 
         # Predict
         prediction = self.model.predict(
@@ -169,10 +155,74 @@ class MainWindow(QMainWindow):
         print(prediction)
 
         digit = prediction.argmax()
+        confidence = prediction[0][digit] * 100
 
         self.result_label.setText(
-            f"Detected Number: {digit}"
+            f"Detected Number: {digit} ({confidence:.1f}%)"
         )
+
+    def prepare_digit_frame(self, frame):
+        size = 28
+
+        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+        gray = cv2.normalize(gray, None, 0, 255, cv2.NORM_MINMAX)
+        pixels = gray.astype("uint8")
+
+        cv2.imwrite("debug_gray.png", pixels)
+
+        corners = [
+            pixels[0, 0],
+            pixels[0, -1],
+            pixels[-1, 0],
+            pixels[-1, -1]
+        ]
+        background = np.median(corners)
+
+        if background > 127:
+            digit_mask = pixels < background - 80
+        else:
+            digit_mask = pixels > background + 40
+
+        mask = digit_mask.astype("uint8") * 255
+        cv2.imwrite("debug_thresh.png", mask)
+
+        component_count, labels, stats, _ = cv2.connectedComponentsWithStats(mask)
+        if component_count <= 1:
+            return None
+
+        component_areas = stats[1:, cv2.CC_STAT_AREA]
+        largest_component = component_areas.argmax() + 1
+        if stats[largest_component, cv2.CC_STAT_AREA] < 30:
+            return None
+
+        digit = labels == largest_component
+        rows, cols = np.where(digit)
+        if len(rows) == 0:
+            return None
+
+        top = rows.min()
+        bottom = rows.max() + 1
+        left = cols.min()
+        right = cols.max() + 1
+
+        digit = digit[top:bottom, left:right].astype("uint8") * 255
+        cv2.imwrite("debug_crop.png", digit)
+
+        crop_height, crop_width = digit.shape
+        scale = 20 / max(crop_height, crop_width)
+        new_width = max(1, int(crop_width * scale))
+        new_height = max(1, int(crop_height * scale))
+        digit = cv2.resize(digit, (new_width, new_height), interpolation=cv2.INTER_AREA)
+
+        final_image = np.zeros((size, size), dtype="uint8")
+        x = (size - new_width) // 2
+        y = (size - new_height) // 2
+        final_image[y:y + new_height, x:x + new_width] = digit
+
+        cv2.imwrite("debug_input.png", final_image)
+
+        final_pixels = final_image.astype("float32") / 255.0
+        return final_pixels.reshape(1, size, size, 1)
 
     def reset_clicked(self):
         print("Resetting the system...")
