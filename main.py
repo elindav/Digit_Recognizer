@@ -25,7 +25,7 @@ class MainWindow(QMainWindow):
 
         #Integrating AI model
         try:
-            self.model_path = Path(__file__).resolve().parent.parent / "digit_recognizer" / "model.keras"
+            self.model_path = Path(__file__).resolve().parent / "model.keras"
             self.model = load_model(self.model_path)
             print(f"AI model loaded successfully: {self.model_path}")
         except Exception as e:
