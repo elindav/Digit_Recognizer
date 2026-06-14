@@ -1,0 +1,6 @@
+.venv/
+__pycache__/
+*.pyc
+debug_input.png
+.idea/workspace.xml
+.DS_Store
