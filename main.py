@@ -158,7 +158,7 @@ class MainWindow(QMainWindow):
         confidence = prediction[0][digit] * 100
 
         self.result_label.setText(
-            f"Detected Number: {digit} ({confidence:.1f}%)"
+            f"Detected Number: {digit}"
         )
 
     def prepare_digit_frame(self, frame):
